@@ -3,7 +3,8 @@ name: Build My Forex AI APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
   build:
@@ -25,7 +26,7 @@ jobs:
           mkdir -p /tmp/my_forex_ai
           unzip -q my_forex_ai_v11_android.zip -d /tmp/my_forex_ai
 
-      - name: Create Android Flutter project
+      - name: Create Flutter Android project
         run: |
           flutter create \
             --platforms=android \
@@ -33,7 +34,28 @@ jobs:
             --project-name my_forex_ai \
             /tmp/flutter_app
 
-      - name: Copy My Forex AI files
+      - name: Install Android SDK 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set compile SDK 36
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("/tmp/flutter_app/android/app/build.gradle.kts")
+          s = p.read_text()
+
+          s = s.replace(
+              "compileSdk = flutter.compileSdkVersion",
+              "compileSdk = 36"
+          )
+
+          p.write_text(s)
+          PY
+
+      - name: Copy My Forex AI application
         run: |
           cp -R /tmp/my_forex_ai/my_forex_ai_v11/android/lib /tmp/flutter_app/
           cp /tmp/my_forex_ai/my_forex_ai_v11/android/pubspec.yaml /tmp/flutter_app/pubspec.yaml
@@ -46,22 +68,24 @@ jobs:
           p = Path("/tmp/flutter_app/android/app/src/main/AndroidManifest.xml")
           s = p.read_text()
 
-          s = s.replace(
-              '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
-              '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
-              '    <uses-permission android:name="android.permission.INTERNET"/>'
-          )
+          permission = '    <uses-permission android:name="android.permission.INTERNET"/>\n'
+
+          if "android.permission.INTERNET" not in s:
+              s = s.replace(
+                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
+                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n' + permission
+              )
 
           p.write_text(s)
           PY
 
-      - name: Install packages
+      - name: Install Flutter packages
         working-directory: /tmp/flutter_app
         run: flutter pub get
 
       - name: Build APK
         working-directory: /tmp/flutter_app
-        run: flutter build apk --release
+        run: flutter build apk --release --no-tree-shake-icons
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
