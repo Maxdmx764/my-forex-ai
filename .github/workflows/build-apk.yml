@@ -1,0 +1,70 @@
+name: Build My Forex AI APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Extract V11 project
+        run: |
+          rm -rf /tmp/my_forex_ai
+          mkdir -p /tmp/my_forex_ai
+          unzip -q my_forex_ai_v11_android.zip -d /tmp/my_forex_ai
+
+      - name: Create Android Flutter project
+        run: |
+          flutter create \
+            --platforms=android \
+            --org com.myforexai \
+            --project-name my_forex_ai \
+            /tmp/flutter_app
+
+      - name: Copy My Forex AI files
+        run: |
+          cp -R /tmp/my_forex_ai/my_forex_ai_v11/android/lib /tmp/flutter_app/
+          cp /tmp/my_forex_ai/my_forex_ai_v11/android/pubspec.yaml /tmp/flutter_app/pubspec.yaml
+
+      - name: Add Internet permission
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("/tmp/flutter_app/android/app/src/main/AndroidManifest.xml")
+          s = p.read_text()
+
+          s = s.replace(
+              '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
+              '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
+              '    <uses-permission android:name="android.permission.INTERNET"/>'
+          )
+
+          p.write_text(s)
+          PY
+
+      - name: Install packages
+        working-directory: /tmp/flutter_app
+        run: flutter pub get
+
+      - name: Build APK
+        working-directory: /tmp/flutter_app
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: my-forex-ai-apk
+          path: /tmp/flutter_app/build/app/outputs/flutter-apk/app-release.apk
