@@ -1,95 +1,149 @@
-name: Build My Forex AI APK
+cd /home/claude/my-forex-ai/mobile
+cat > pubspec.yaml <<'EOF'
+name: my_forex_ai
+description: AI Forex signal bot (BUY / SELL / WAIT) that follows only your own uploaded strategies.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.2
+  file_picker: ^10.1.0
+  image_picker: ^1.1.2
+  shared_preferences: ^2.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+EOF
+
+cat > analysis_options.yaml <<'EOF'
+# Kept deliberately simple so the build never fails on style suggestions.
+analyzer:
+  errors:
+    todo: ignore
+EOF
+
+cat > .gitignore <<'EOF'
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+local.properties
+.gradle/
+key.properties
+*.jks
+*.keystore
+EOF
+
+cat > tools/prepare_android.py <<'EOF'
+#!/usr/bin/env python3
+"""Run after `flutter create`: makes the generated Android project ready for My Forex AI.
+
+* adds the INTERNET permission (needed to talk to your backend)
+* sets the app name shown on the phone
+* turns off Android auto-backup so the saved API token is not copied to cloud backups
+"""
+import pathlib
+import re
+import sys
+
+manifest = pathlib.Path("android/app/src/main/AndroidManifest.xml")
+if not manifest.exists():
+    sys.exit("AndroidManifest.xml not found - run `flutter create --platforms=android .` first.")
+
+text = manifest.read_text(encoding="utf-8")
+
+if "android.permission.INTERNET" not in text:
+    text = text.replace(
+        "<application",
+        '<uses-permission android:name="android.permission.INTERNET"/>\n    <application',
+        1,
+    )
+
+text = re.sub(r'android:label="[^"]*"', 'android:label="My Forex AI"', text, count=1)
+
+if "android:allowBackup" not in text:
+    text = text.replace("<application", '<application\n        android:allowBackup="false"', 1)
+
+manifest.write_text(text, encoding="utf-8")
+
+final = manifest.read_text(encoding="utf-8")
+assert "android.permission.INTERNET" in final, "INTERNET permission missing"
+assert 'android:label="My Forex AI"' in final, "app label not set"
+print("AndroidManifest.xml prepared:")
+print(final)
+EOF
+
+cat > ../.github/workflows/build-apk.yml <<'EOF'
+name: Build Android APK
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:        # lets you press "Run workflow" manually
   push:
-    branches:
-      - main
+    branches: [main, master]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: mobile
     steps:
-      - name: Download repository
+      - name: Get the code
         uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: "3.35.x"
           cache: true
 
-      - name: Extract V11 project
+      - name: Create the Android project files
         run: |
-          rm -rf /tmp/my_forex_ai
-          mkdir -p /tmp/my_forex_ai
-          unzip -q my_forex_ai_v11_android.zip -d /tmp/my_forex_ai
+          flutter --version
+          flutter create --platforms=android --org com.myforexai --project-name my_forex_ai .
+          rm -f test/widget_test.dart
+          python3 tools/prepare_android.py
 
-      - name: Create Flutter Android project
-        run: |
-          flutter create \
-            --platforms=android \
-            --org com.myforexai \
-            --project-name my_forex_ai \
-            /tmp/flutter_app
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android 36
-        run: |
-          sdkmanager "platforms;android-36" "build-tools;36.0.0"
-
-      - name: Set compile SDK 36
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path("/tmp/flutter_app/android/app/build.gradle.kts")
-          s = p.read_text()
-
-          s = s.replace(
-              "compileSdk = flutter.compileSdkVersion",
-              "compileSdk = 36"
-          )
-
-          p.write_text(s)
-          PY
-
-      - name: Copy My Forex AI application
-        run: |
-          cp -R /tmp/my_forex_ai/my_forex_ai_v11/android/lib /tmp/flutter_app/
-          cp /tmp/my_forex_ai/my_forex_ai_v11/android/pubspec.yaml /tmp/flutter_app/pubspec.yaml
-
-      - name: Add Internet permission
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path("/tmp/flutter_app/android/app/src/main/AndroidManifest.xml")
-          s = p.read_text()
-
-          if "android.permission.INTERNET" not in s:
-              s = s.replace(
-                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
-                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
-                  '    <uses-permission android:name="android.permission.INTERNET"/>'
-              )
-
-          p.write_text(s)
-          PY
-
-      - name: Install Flutter packages
-        working-directory: /tmp/flutter_app
+      - name: flutter pub get
         run: flutter pub get
 
-      - name: Build APK
-        working-directory: /tmp/flutter_app
-        run: flutter build apk --release --no-tree-shake-icons
+      - name: flutter analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
-      - name: Upload APK
+      - name: flutter build apk --release
+        run: flutter build apk --release
+
+      - name: Name the APK
+        run: cp build/app/outputs/flutter-apk/app-release.apk My-Forex-AI.apk
+
+      - name: Upload the APK
         uses: actions/upload-artifact@v4
         with:
-          name: my-forex-ai-apk
-          path: /tmp/flutter_app/build/app/outputs/flutter-apk/app-release.apk
+          name: My-Forex-AI-APK
+          path: mobile/My-Forex-AI.apk
+          if-no-files-found: error
+EOF
+cp ../.github/workflows/build-apk.yml ../GITHUB_WORKFLOW_build-apk.yml.txt
+python3 -c "import yaml" 2>/dev/null && python3 -c "
+import yaml
+d = yaml.safe_load(open('/home/claude/my-forex-ai/.github/workflows/build-apk.yml'))
+print('workflow yaml OK; jobs:', list(d['jobs']))" || echo "yaml module missing; skip parse"
