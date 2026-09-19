@@ -34,9 +34,11 @@ jobs:
             --project-name my_forex_ai \
             /tmp/flutter_app
 
-      - name: Install Android SDK 36
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 36
         run: |
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
           sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
       - name: Set compile SDK 36
@@ -68,12 +70,11 @@ jobs:
           p = Path("/tmp/flutter_app/android/app/src/main/AndroidManifest.xml")
           s = p.read_text()
 
-          permission = '    <uses-permission android:name="android.permission.INTERNET"/>\n'
-
           if "android.permission.INTERNET" not in s:
               s = s.replace(
                   '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
-                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n' + permission
+                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
+                  '    <uses-permission android:name="android.permission.INTERNET"/>'
               )
 
           p.write_text(s)
